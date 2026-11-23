@@ -4,7 +4,7 @@ target kumpul: **29 nov 2026**. centang kalau udah kelar.
 
 ## devops & repositori
 
-- [ ] **1.** Setup repo GitHub & standardisasi struktur folder · Alip (+ Rafi Ikhwan, Jordan, Inggri) · critical · 22/11
+- [DONE] **1.** Setup repo GitHub & standardisasi struktur folder · Alip (+ Rafi Ikhwan, Jordan, Inggri) · critical · 22/11
 
 ## database & backend
 
