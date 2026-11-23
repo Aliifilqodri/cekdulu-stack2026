@@ -1,0 +1,7 @@
+{
+  "name": "cekdulu",
+  "private": true,
+  "description": "cek dulu, baru berangkat. peta kondisi layanan rt sampai kelurahan dari laporan warga.",
+  "workspaces": ["apps/*", "packages/*"],
+  "engines": { "node": ">=20" }
+}
