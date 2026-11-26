@@ -2,6 +2,20 @@
   "name": "cekdulu",
   "private": true,
   "description": "cek dulu, baru berangkat. peta kondisi layanan rt sampai kelurahan dari laporan warga.",
-  "workspaces": ["apps/*", "packages/*"],
-  "engines": { "node": ">=20" }
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:packages": "npm run build -w @cekdulu/shared && npm run build -w @cekdulu/db",
+    "build:api": "npm run build:packages && npm run build -w @cekdulu/api",
+    "dev:api": "npm run build:packages && npm run dev -w @cekdulu/api",
+    "dev:web": "npm run dev -w web",
+    "db:sql": "npm run build -w @cekdulu/shared && npm run schema:sql -w @cekdulu/db",
+    "db:sync": "npm run build -w @cekdulu/shared && npm run schema:sync -w @cekdulu/db",
+    "db:seed": "npm run build -w @cekdulu/shared && npm run seed -w @cekdulu/db"
+  },
+  "engines": {
+    "node": ">=20"
+  }
 }

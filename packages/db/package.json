@@ -1,0 +1,35 @@
+{
+  "name": "@cekdulu/db",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "tsc --build --clean",
+    "schema:sql": "tsx src/scripts/apply-sql.ts",
+    "schema:sync": "tsx src/scripts/sync-schema.ts",
+    "seed": "tsx src/scripts/run-seed.ts"
+  },
+  "mikro-orm": {
+    "configPaths": [
+      "./dist/mikro-orm.config.js",
+      "./src/mikro-orm.config.ts"
+    ]
+  },
+  "dependencies": {
+    "@cekdulu/shared": "*",
+    "@mikro-orm/core": "^6.4.3",
+    "@mikro-orm/migrations": "^6.4.3",
+    "@mikro-orm/postgresql": "^6.4.3",
+    "@mikro-orm/seeder": "^6.4.3",
+    "dotenv": "^16.4.5",
+    "reflect-metadata": "^0.2.2"
+  },
+  "devDependencies": {
+    "@mikro-orm/cli": "^6.4.3",
+    "@types/node": "^20.17.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
