@@ -10,7 +10,11 @@ import {
 } from "@cekdulu/db";
 import { ChannelSource, NotifType, UserRole } from "@cekdulu/shared";
 import { emitLocationEvent } from "../lib/socket";
-import { requireAuth, requireRole } from "../middlewares/auth";
+import {
+  requireAuth,
+  requireRole,
+  resolveSourceChannel,
+} from "../middlewares/auth";
 import { AppError, asyncHandler } from "../middlewares/error";
 import { validateBody, validateQuery } from "../middlewares/validate";
 import { notifyLocationWatchers } from "../services/notification.service";
@@ -31,6 +35,7 @@ const createScheduleSchema = z.object({
   startTime: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
   endTime: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
   isAvailable: z.boolean().optional(),
+  source_channel: z.nativeEnum(ChannelSource).optional(),
   sourceChannel: z.nativeEnum(ChannelSource).optional(),
 });
 
@@ -123,7 +128,10 @@ schedulesRouter.post(
       startTime: body.startTime,
       endTime: body.endTime,
       isAvailable: body.isAvailable ?? true,
-      sourceChannel: body.sourceChannel ?? authUser.sourceChannel,
+      sourceChannel: resolveSourceChannel(
+        req,
+        body.source_channel ?? body.sourceChannel,
+      ),
     });
 
     await notifyLocationWatchers(em, {

@@ -125,6 +125,33 @@ export const optionalAuth: RequestHandler = async (
   }
 };
 
+export function resolveSourceChannel(
+  req: Request,
+  explicit?: ChannelSource | null,
+): ChannelSource {
+  if (explicit) return explicit;
+  const raw =
+    (req.body && (req.body.source_channel ?? req.body.sourceChannel)) ||
+    (req.query && (req.query.source_channel ?? req.query.sourceChannel));
+  if (raw === ChannelSource.WA_BOT || raw === ChannelSource.WEB) {
+    return raw;
+  }
+  return req.user?.sourceChannel ?? ChannelSource.WEB;
+}
+
+export const requireBotApiKey: RequestHandler = (
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+) => {
+  const botKey = req.header("x-bot-api-key");
+  if (!botKey || botKey !== env.BOT_API_KEY) {
+    next(new AppError(401, "INVALID_BOT_KEY", "x-bot-api-key tidak valid"));
+    return;
+  }
+  next();
+};
+
 export function requireRole(...allowedRoles: UserRole[]): RequestHandler {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) {

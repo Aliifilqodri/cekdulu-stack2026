@@ -25,7 +25,11 @@ import {
   scheduleReportExpiryInRedis,
 } from "../lib/redis";
 import { emitLocationEvent } from "../lib/socket";
-import { requireAuth, requireRole } from "../middlewares/auth";
+import {
+  requireAuth,
+  requireRole,
+  resolveSourceChannel,
+} from "../middlewares/auth";
 import { AppError, asyncHandler } from "../middlewares/error";
 import { validateBody, validateQuery } from "../middlewares/validate";
 import { recalculateLocationSummary } from "../services/consensus.service";
@@ -46,6 +50,7 @@ const createReportSchema = z.object({
   conditionType: z.nativeEnum(ReportCondition),
   queueRange: z.nativeEnum(QueueBucket).optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
+  source_channel: z.nativeEnum(ChannelSource).optional(),
   sourceChannel: z.nativeEnum(ChannelSource).optional(),
 });
 
@@ -173,7 +178,10 @@ reportsRouter.post(
       conditionType: body.conditionType,
       queueRange: body.queueRange ?? null,
       notes: body.notes ?? null,
-      sourceChannel: body.sourceChannel ?? authUser.sourceChannel,
+      sourceChannel: resolveSourceChannel(
+        req,
+        body.source_channel ?? body.sourceChannel,
+      ),
       validationStatus: ValidationState.PENDING,
       weightScore,
       isHidden: false,

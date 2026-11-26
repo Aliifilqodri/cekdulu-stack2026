@@ -1,20 +1,15 @@
 import { Router } from "express";
 import { FilterQuery } from "@mikro-orm/core";
 import { z } from "zod";
-import {
-  Answer,
-  getOrm,
-  Location,
-  Question,
-  RtOfficial,
-  User,
-} from "@cekdulu/db";
-import { NotifType, UserRole } from "@cekdulu/shared";
-import { emitLocationEvent } from "../lib/socket";
-import { requireAuth } from "../middlewares/auth";
-import { AppError, asyncHandler } from "../middlewares/error";
+import { getOrm, Question } from "@cekdulu/db";
+import { ChannelSource } from "@cekdulu/shared";
+import { requireAuth, resolveSourceChannel } from "../middlewares/auth";
+import { asyncHandler } from "../middlewares/error";
 import { validateBody, validateQuery } from "../middlewares/validate";
-import { createAndDispatchNotification } from "../services/notification.service";
+import {
+  createLocationQuestion,
+  createQuestionAnswer,
+} from "../services/qa-watch.service";
 
 export const questionsRouter = Router();
 
@@ -26,10 +21,14 @@ const listQuestionsQuerySchema = z.object({
 const createQuestionSchema = z.object({
   locationId: z.string().uuid(),
   questionText: z.string().trim().min(5).max(1000),
+  source_channel: z.nativeEnum(ChannelSource).optional(),
+  sourceChannel: z.nativeEnum(ChannelSource).optional(),
 });
 
 const createAnswerSchema = z.object({
   answerText: z.string().trim().min(2).max(1000),
+  source_channel: z.nativeEnum(ChannelSource).optional(),
+  sourceChannel: z.nativeEnum(ChannelSource).optional(),
 });
 
 questionsRouter.get(
@@ -85,37 +84,16 @@ questionsRouter.post(
   requireAuth,
   validateBody(createQuestionSchema),
   asyncHandler(async (req, res) => {
-    const em = getOrm().em;
     const body = req.body as z.infer<typeof createQuestionSchema>;
-
-    const [location, user] = await Promise.all([
-      em.findOne(Location, { id: body.locationId }),
-      em.findOneOrFail(User, { id: req.user!.id }),
-    ]);
-
-    if (!location) {
-      throw new AppError(404, "LOCATION_NOT_FOUND", "Lokasi tidak ditemukan");
-    }
-
-    const question = em.create(Question, {
-      location,
-      user,
+    const payload = await createLocationQuestion(getOrm().em, {
+      locationId: body.locationId,
+      userId: req.user!.id,
       questionText: body.questionText,
-      isAnswered: false,
+      sourceChannel: resolveSourceChannel(
+        req,
+        body.source_channel ?? body.sourceChannel,
+      ),
     });
-
-    await em.flush();
-
-    const payload = {
-      id: question.id,
-      locationId: location.id,
-      questionText: question.questionText,
-      isAnswered: question.isAnswered,
-      createdAt: question.createdAt,
-      askedBy: user.fullName ?? "Warga",
-    };
-
-    emitLocationEvent(location.id, "question:created", payload);
 
     res.status(201).json({
       success: true,
@@ -129,63 +107,16 @@ questionsRouter.post(
   requireAuth,
   validateBody(createAnswerSchema),
   asyncHandler(async (req, res) => {
-    const em = getOrm().em;
     const body = req.body as z.infer<typeof createAnswerSchema>;
-
-    const [question, answerer] = await Promise.all([
-      em.findOne(
-        Question,
-        { id: req.params.id },
-        { populate: ["location", "user"] },
-      ),
-      em.findOneOrFail(User, { id: req.user!.id }),
-    ]);
-
-    if (!question) {
-      throw new AppError(404, "QUESTION_NOT_FOUND", "Pertanyaan tidak ditemukan");
-    }
-
-    const officialAssignment = await em.findOne(RtOfficial, {
-      user: answerer.id,
-      location: question.location.id,
-      isActive: true,
-    });
-
-    const isOfficialRt =
-      officialAssignment !== null || answerer.role === UserRole.ADMIN;
-
-    const answer = em.create(Answer, {
-      question,
-      user: answerer,
+    const payload = await createQuestionAnswer(getOrm().em, {
+      questionId: req.params.id,
+      userId: req.user!.id,
       answerText: body.answerText,
-      isOfficialRt,
+      sourceChannel: resolveSourceChannel(
+        req,
+        body.source_channel ?? body.sourceChannel,
+      ),
     });
-
-    question.isAnswered = true;
-
-    if (question.user.id !== answerer.id) {
-      await createAndDispatchNotification(em, {
-        user: question.user,
-        type: NotifType.QUESTION_ANSWERED,
-        title: `Pertanyaanmu di ${question.location.name} Dijawab`,
-        body: `${answerer.fullName ?? (isOfficialRt ? "Pengurus RT" : "Warga")}: "${body.answerText}"`,
-        referenceId: question.id,
-        sendWhatsApp: true,
-      });
-    }
-
-    await em.flush();
-
-    const payload = {
-      id: answer.id,
-      questionId: question.id,
-      answerText: answer.answerText,
-      isOfficialRt: answer.isOfficialRt,
-      createdAt: answer.createdAt,
-      answeredBy: answerer.fullName ?? (isOfficialRt ? "Pengurus RT" : "Warga"),
-    };
-
-    emitLocationEvent(question.location.id, "answer:created", payload);
 
     res.status(201).json({
       success: true,

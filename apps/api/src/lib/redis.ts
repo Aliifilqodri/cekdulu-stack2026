@@ -163,6 +163,23 @@ export async function getLocationSummaryCache<T>(
   return raw ? (JSON.parse(raw) as T) : null;
 }
 
+export async function getLocationSummaryCacheMap<T>(
+  locationIds: string[],
+): Promise<Map<string, T>> {
+  const result = new Map<string, T>();
+  const r = getRedis();
+  if (!r || locationIds.length === 0) return result;
+
+  const keys = locationIds.map((id) => REDIS_KEYS.summaryCache(id));
+  const values = await r.mget(...keys);
+  values.forEach((raw, idx) => {
+    if (raw) {
+      result.set(locationIds[idx], JSON.parse(raw) as T);
+    }
+  });
+  return result;
+}
+
 export async function invalidateLocationSummaryCache(
   locationId: string,
 ): Promise<void> {

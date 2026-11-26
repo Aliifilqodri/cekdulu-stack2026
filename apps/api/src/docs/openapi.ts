@@ -219,10 +219,12 @@ export const openApiSpec = {
             in: "query",
             schema: { $ref: "#/components/schemas/SummaryStatus" },
           },
-          { name: "q", in: "query", schema: { type: "string" }, description: "Kata kunci nama/alamat" },
+          { name: "q", in: "query", schema: { type: "string" }, description: "Kata kunci nama, alamat, atau jenis layanan" },
           { name: "lat", in: "query", schema: { type: "number" } },
           { name: "lng", in: "query", schema: { type: "number" } },
-          { name: "radiusKm", in: "query", schema: { type: "number" } },
+          { name: "radius", in: "query", schema: { type: "number" }, description: "Radius pencarian (km)" },
+          { name: "radiusKm", in: "query", schema: { type: "number" }, description: "Alias radius (km)" },
+          { name: "source_channel", in: "query", schema: { $ref: "#/components/schemas/ChannelSource" } },
         ],
         responses: {
           200: { description: "Daftar lokasi ditemukan" },
@@ -385,6 +387,57 @@ export const openApiSpec = {
         ],
         responses: {
           200: { description: "Syarat berkas dihapus" },
+        },
+      },
+    },
+    "/api/v1/locations/{id}/questions": {
+      post: {
+        tags: ["Questions"],
+        summary: "Kirim pertanyaan baru pada lokasi terkait",
+        security: [{ bearerAuth: [] }, { botApiKey: [], botUserPhone: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: uuidSchema }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["questionText"],
+                properties: {
+                  questionText: { type: "string", example: "Blanko e-KTP hari ini ada?" },
+                  source_channel: { $ref: "#/components/schemas/ChannelSource" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          201: { description: "Pertanyaan terkirim" },
+        },
+      },
+    },
+    "/api/v1/locations/{id}/watch": {
+      post: {
+        tags: ["Watchlist"],
+        summary: "Toggle pantauan status lokasi (otomatis kirim notif WA saat status berubah)",
+        security: [{ bearerAuth: [] }, { botApiKey: [], botUserPhone: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: uuidSchema }],
+        requestBody: {
+          required: false,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  source_channel: { $ref: "#/components/schemas/ChannelSource" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: "Berhenti memantau lokasi (isWatching: false)" },
+          201: { description: "Mulai memantau lokasi (isWatching: true)" },
         },
       },
     },
@@ -684,9 +737,40 @@ export const openApiSpec = {
         parameters: [
           { name: "keyword", in: "query", required: true, schema: { type: "string" }, example: "Kebon Jeruk" },
           { name: "category", in: "query", schema: { $ref: "#/components/schemas/LocationCategory" } },
+          { name: "source_channel", in: "query", schema: { $ref: "#/components/schemas/ChannelSource" } },
         ],
         responses: {
           200: { description: "Daftar lokasi + teks balasan siap kirim WA" },
+        },
+      },
+    },
+    "/api/v1/bot/webhook": {
+      post: {
+        tags: ["Bot"],
+        summary: "Webhook internal terpadu WhatsApp Bot Gateway",
+        security: [{ botApiKey: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["action"],
+                properties: {
+                  action: { type: "string", enum: ["check_status", "ask_question", "toggle_watch"] },
+                  phoneNumber: { type: "string", example: "6281234567890" },
+                  keyword: { type: "string", example: "Kebon Jeruk" },
+                  locationId: uuidSchema,
+                  questionText: { type: "string" },
+                  source_channel: { $ref: "#/components/schemas/ChannelSource" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: "Hasil aksi webhook bot dalam format JSON ringkas" },
+          201: { description: "Resource baru terbuat via webhook bot" },
         },
       },
     },

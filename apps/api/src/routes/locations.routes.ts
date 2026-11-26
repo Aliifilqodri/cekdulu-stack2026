@@ -15,6 +15,7 @@ import {
 import {
   BlankoState,
   CATEGORY_LABELS,
+  ChannelSource,
   LocationCategory,
   NetworkState,
   OfficerState,
@@ -22,11 +23,23 @@ import {
   SummaryStatus,
   UserRole,
 } from "@cekdulu/shared";
-import { getLocationSummaryCache } from "../lib/redis";
-import { requireAuth, requireRole } from "../middlewares/auth";
+import {
+  getLocationSummaryCache,
+  getLocationSummaryCacheMap,
+} from "../lib/redis";
+import {
+  requireAuth,
+  requireRole,
+  resolveSourceChannel,
+} from "../middlewares/auth";
 import { AppError, asyncHandler } from "../middlewares/error";
 import { validateBody, validateQuery } from "../middlewares/validate";
 import { serializeStatusSummary } from "../services/consensus.service";
+import {
+  createLocationQuestion,
+  fetchLocationBusyHours,
+  toggleWatchLocation,
+} from "../services/qa-watch.service";
 
 export const locationsRouter = Router();
 
@@ -36,8 +49,24 @@ const listLocationsQuerySchema = z.object({
   q: z.string().trim().optional(),
   lat: z.coerce.number().min(-90).max(90).optional(),
   lng: z.coerce.number().min(-180).max(180).optional(),
+  radius: z.coerce.number().positive().max(100).optional(),
   radiusKm: z.coerce.number().positive().max(100).optional(),
+  source_channel: z.nativeEnum(ChannelSource).optional(),
+  sourceChannel: z.nativeEnum(ChannelSource).optional(),
 });
+
+const createLocationQuestionSchema = z.object({
+  questionText: z.string().trim().min(5).max(1000),
+  source_channel: z.nativeEnum(ChannelSource).optional(),
+  sourceChannel: z.nativeEnum(ChannelSource).optional(),
+});
+
+const watchToggleSchema = z
+  .object({
+    source_channel: z.nativeEnum(ChannelSource).optional(),
+    sourceChannel: z.nativeEnum(ChannelSource).optional(),
+  })
+  .optional();
 
 const createLocationSchema = z.object({
   name: z.string().trim().min(3).max(150),
@@ -176,8 +205,9 @@ locationsRouter.get(
   validateQuery(listLocationsQuerySchema),
   asyncHandler(async (req, res) => {
     const em = getOrm().em;
-    const { category, status, q, lat, lng, radiusKm } =
+    const { category, status, q, lat, lng, radius, radiusKm } =
       req.query as unknown as z.infer<typeof listLocationsQuerySchema>;
+    const effectiveRadiusKm = radius ?? radiusKm;
 
     const where: FilterQuery<Location> = {};
     if (category) {
@@ -187,6 +217,7 @@ locationsRouter.get(
       where.$or = [
         { name: { $ilike: `%${q}%` } },
         { address: { $ilike: `%${q}%` } },
+        { requirements: { serviceName: { $ilike: `%${q}%` } } },
       ];
     }
     if (status) {
@@ -197,6 +228,10 @@ locationsRouter.get(
       populate: ["statusSummary"],
       orderBy: { name: "ASC" },
     });
+
+    const cachedSummaryMap = await getLocationSummaryCacheMap<
+      ReturnType<typeof serializeStatusSummary>
+    >(locations.map((l) => l.id));
 
     const todayStr = new Date().toISOString().slice(0, 10);
     const todaySchedules = await em.find(RtSchedule, {
@@ -214,30 +249,11 @@ locationsRouter.get(
           ? Number(haversineKm(lat, lng, loc.latitude, loc.longitude).toFixed(2))
           : null;
 
-      const summary = loc.statusSummary;
-      const { headline, metaText } = buildHumanHeadline(
-        loc,
-        summary,
-        scheduleMap.get(loc.id),
-      );
-
-      return {
-        id: loc.id,
-        name: loc.name,
-        category: loc.category,
-        categoryLabel: CATEGORY_LABELS[loc.category],
-        address: loc.address ?? null,
-        latitude: loc.latitude,
-        longitude: loc.longitude,
-        openTime: loc.openTime ?? null,
-        closeTime: loc.closeTime ?? null,
-        operationalDays: loc.operationalDays ?? null,
-        isMobileUnit: loc.isMobileUnit,
-        distanceKm,
-        headline,
-        metaText,
-        summary: summary
-          ? serializeStatusSummary(summary)
+      const dbSummary = loc.statusSummary;
+      const summaryPayload =
+        cachedSummaryMap.get(loc.id) ??
+        (dbSummary
+          ? serializeStatusSummary(dbSummary)
           : {
               locationId: loc.id,
               currentStatus: SummaryStatus.UNKNOWN,
@@ -249,18 +265,53 @@ locationsRouter.get(
               confirmationCount: 0,
               lastUpdatedAt: loc.createdAt,
               expiresAt: null,
-            },
+            });
+
+      const { headline, metaText } = buildHumanHeadline(
+        loc,
+        dbSummary,
+        scheduleMap.get(loc.id),
+      );
+
+      return {
+        id: loc.id,
+        name: loc.name,
+        category: loc.category,
+        categoryLabel: CATEGORY_LABELS[loc.category],
+        address: loc.address ?? null,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        coordType:
+          loc.category === LocationCategory.KANTOR_RT
+            ? "balai_warga_centroid"
+            : "exact",
+        openTime: loc.openTime ?? null,
+        closeTime: loc.closeTime ?? null,
+        operationalDays: loc.operationalDays ?? null,
+        isMobileUnit: loc.isMobileUnit,
+        distanceKm,
+        headline,
+        metaText,
+        summary: summaryPayload,
       };
     });
 
-    if (radiusKm !== undefined && lat !== undefined && lng !== undefined) {
+    if (
+      effectiveRadiusKm !== undefined &&
+      lat !== undefined &&
+      lng !== undefined
+    ) {
       results = results
-        .filter((item) => item.distanceKm !== null && item.distanceKm <= radiusKm)
+        .filter(
+          (item) =>
+            item.distanceKm !== null && item.distanceKm <= effectiveRadiusKm,
+        )
         .sort((a, b) => (a.distanceKm ?? 0) - (b.distanceKm ?? 0));
     }
 
     res.json({
       success: true,
+      sourceChannel: resolveSourceChannel(req),
       data: results,
     });
   }),
@@ -283,36 +334,38 @@ locationsRouter.get(
     const now = new Date();
     const todayStr = now.toISOString().slice(0, 10);
 
-    const [schedules, activeReports, questions, officials] = await Promise.all([
-      em.find(
-        RtSchedule,
-        { location: loc.id, scheduleDate: { $gte: todayStr } },
-        { orderBy: { scheduleDate: "ASC", startTime: "ASC" } },
-      ),
-      em.find(
-        Report,
-        { location: loc.id, isHidden: false, expiresAt: { $gt: now } },
-        {
-          populate: ["user", "user.reputation"],
-          orderBy: { createdAt: "DESC" },
-          limit: 20,
-        },
-      ),
-      em.find(
-        Question,
-        { location: loc.id },
-        {
-          populate: ["user", "answers", "answers.user"],
-          orderBy: { createdAt: "DESC" },
-          limit: 15,
-        },
-      ),
-      em.find(
-        RtOfficial,
-        { location: loc.id, isActive: true },
-        { populate: ["user"] },
-      ),
-    ]);
+    const [schedules, activeReports, questions, officials, busyHours] =
+      await Promise.all([
+        em.find(
+          RtSchedule,
+          { location: loc.id, scheduleDate: { $gte: todayStr } },
+          { orderBy: { scheduleDate: "ASC", startTime: "ASC" } },
+        ),
+        em.find(
+          Report,
+          { location: loc.id, isHidden: false, expiresAt: { $gt: now } },
+          {
+            populate: ["user", "user.reputation"],
+            orderBy: { createdAt: "DESC" },
+            limit: 20,
+          },
+        ),
+        em.find(
+          Question,
+          { location: loc.id },
+          {
+            populate: ["user", "answers", "answers.user"],
+            orderBy: { createdAt: "DESC" },
+            limit: 15,
+          },
+        ),
+        em.find(
+          RtOfficial,
+          { location: loc.id, isActive: true },
+          { populate: ["user"] },
+        ),
+        fetchLocationBusyHours(em, loc.id),
+      ]);
 
     const cachedSummary = await getLocationSummaryCache<
       ReturnType<typeof serializeStatusSummary>
@@ -326,6 +379,7 @@ locationsRouter.get(
 
     res.json({
       success: true,
+      sourceChannel: resolveSourceChannel(req),
       data: {
         id: loc.id,
         name: loc.name,
@@ -334,6 +388,10 @@ locationsRouter.get(
         address: loc.address ?? null,
         latitude: loc.latitude,
         longitude: loc.longitude,
+        coordType:
+          loc.category === LocationCategory.KANTOR_RT
+            ? "balai_warga_centroid"
+            : "exact",
         openTime: loc.openTime ?? null,
         closeTime: loc.closeTime ?? null,
         operationalDays: loc.operationalDays ?? null,
@@ -343,6 +401,7 @@ locationsRouter.get(
         summary:
           cachedSummary ??
           (loc.statusSummary ? serializeStatusSummary(loc.statusSummary) : null),
+        busyHours,
         schedules: schedules.map((s) => ({
           id: s.id,
           scheduleDate: s.scheduleDate,
@@ -585,6 +644,53 @@ locationsRouter.delete(
 
     await em.removeAndFlush(requirement);
     res.json({ success: true, data: { deletedId: req.params.reqId } });
+  }),
+);
+
+locationsRouter.post(
+  "/:id/questions",
+  requireAuth,
+  validateBody(createLocationQuestionSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof createLocationQuestionSchema>;
+    const payload = await createLocationQuestion(getOrm().em, {
+      locationId: req.params.id,
+      userId: req.user!.id,
+      questionText: body.questionText,
+      sourceChannel: resolveSourceChannel(
+        req,
+        body.source_channel ?? body.sourceChannel,
+      ),
+    });
+
+    res.status(201).json({
+      success: true,
+      data: payload,
+    });
+  }),
+);
+
+locationsRouter.post(
+  "/:id/watch",
+  requireAuth,
+  validateBody(watchToggleSchema),
+  asyncHandler(async (req, res) => {
+    const body = (req.body || {}) as NonNullable<
+      z.infer<typeof watchToggleSchema>
+    >;
+    const payload = await toggleWatchLocation(getOrm().em, {
+      locationId: req.params.id,
+      userId: req.user!.id,
+      sourceChannel: resolveSourceChannel(
+        req,
+        body.source_channel ?? body.sourceChannel,
+      ),
+    });
+
+    res.status(payload.isWatching ? 201 : 200).json({
+      success: true,
+      data: payload,
+    });
   }),
 );
 
