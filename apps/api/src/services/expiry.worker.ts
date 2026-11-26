@@ -1,9 +1,31 @@
 import { getOrm, Report } from "@cekdulu/db";
 import { ValidationState } from "@cekdulu/shared";
-import { getRedis, REDIS_KEYS } from "../lib/redis";
+import {
+  getRedis,
+  REDIS_KEYS,
+  setupRedisKeyspaceExpiryListener,
+} from "../lib/redis";
 import { recalculateLocationSummary } from "./consensus.service";
 
 let timer: NodeJS.Timeout | null = null;
+
+/**
+ * Handler real-time ketika Redis key `location:status:{location_id}` expired setelah TTL 7200 detik
+ * melalui `__keyevent@*__:expired`.
+ */
+export async function handleLocationStatusKeyExpired(
+  locationId: string,
+): Promise<void> {
+  try {
+    const em = getOrm().em.fork();
+    await recalculateLocationSummary(em, locationId);
+  } catch (err) {
+    console.error(
+      `[redis:keyspace] Gagal reset status lokasi ${locationId} saat expired:`,
+      err,
+    );
+  }
+}
 
 /**
  * Worker berkala untuk memproses laporan yang sudah melewati batas 2 jam:
@@ -59,6 +81,7 @@ export async function processExpiredReportsTick(): Promise<void> {
 }
 
 export function startExpiryWorker(intervalMs = 30_000): void {
+  void setupRedisKeyspaceExpiryListener(handleLocationStatusKeyExpired);
   if (timer) return;
   timer = setInterval(() => {
     void processExpiredReportsTick();

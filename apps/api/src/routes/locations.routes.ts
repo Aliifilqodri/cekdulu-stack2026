@@ -22,6 +22,7 @@ import {
   SummaryStatus,
   UserRole,
 } from "@cekdulu/shared";
+import { getLocationSummaryCache } from "../lib/redis";
 import { requireAuth, requireRole } from "../middlewares/auth";
 import { AppError, asyncHandler } from "../middlewares/error";
 import { validateBody, validateQuery } from "../middlewares/validate";
@@ -313,6 +314,10 @@ locationsRouter.get(
       ),
     ]);
 
+    const cachedSummary = await getLocationSummaryCache<
+      ReturnType<typeof serializeStatusSummary>
+    >(loc.id);
+
     const { headline, metaText } = buildHumanHeadline(
       loc,
       loc.statusSummary,
@@ -335,9 +340,9 @@ locationsRouter.get(
         isMobileUnit: loc.isMobileUnit,
         headline,
         metaText,
-        summary: loc.statusSummary
-          ? serializeStatusSummary(loc.statusSummary)
-          : null,
+        summary:
+          cachedSummary ??
+          (loc.statusSummary ? serializeStatusSummary(loc.statusSummary) : null),
         schedules: schedules.map((s) => ({
           id: s.id,
           scheduleDate: s.scheduleDate,

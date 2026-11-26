@@ -53,14 +53,13 @@ export function emitLocationStatusUpdate(
   summaryPayload: unknown,
 ): void {
   if (!io) return;
-  io.to("map:global").emit("location:status_updated", {
+  const eventPayload = {
     locationId,
     summary: summaryPayload,
-  });
-  io.to(`location:${locationId}`).emit("location:detail_updated", {
-    locationId,
-    summary: summaryPayload,
-  });
+  };
+  io.to("map:global").emit("location:status_updated", eventPayload);
+  io.to(`location:${locationId}`).emit("location:status_updated", eventPayload);
+  io.to(`location:${locationId}`).emit("location:detail_updated", eventPayload);
 }
 
 export function emitLocationEvent(

@@ -14,13 +14,13 @@ export const OTP_TTL_SECONDS = 5 * 60; // 5 menit
 export const MAX_OTP_ATTEMPTS = 5;
 
 /**
- * Ambang batas bobot suara agar laporan berstatus 'confirmed'
- * (misal: 2 warga biasa @1 poin, atau 1 trusted reporter @2 poin, atau 1 pengurus RT @3 poin)
+ * Ambang batas total weight_score agar laporan berstatus 'confirmed'
+ * (setara 3 warga biasa @1, atau 1 Trusted Reporter @2 + 1 warga biasa @1)
  */
-export const CONFIRMATION_WEIGHT_THRESHOLD = 2;
+export const CONFIRMATION_WEIGHT_THRESHOLD = 3;
 
-export const TRUSTED_MIN_MATCHED_REPORTS = 5;
-export const TRUSTED_MIN_ACCURACY_RATIO = 0.7;
+export const TRUSTED_MIN_TOTAL_REPORTS = 10;
+export const TRUSTED_MIN_ACCURACY_RATIO = 0.9;
 
 export interface ActiveReportInput {
   id: string;
@@ -28,6 +28,7 @@ export interface ActiveReportInput {
   conditionType: ReportCondition;
   queueRange?: QueueBucket | null;
   weightScore: number;
+  isHidden?: boolean;
   createdAt: Date;
   expiresAt: Date;
 }
@@ -39,6 +40,7 @@ export interface ComputedSummaryResult {
   officerStatus: OfficerState | null;
   networkStatus: NetworkState | null;
   confirmationCount: number;
+  totalWeight: number;
   expiresAt: Date | null;
   winningCondition: ReportCondition | null;
   isConfirmed: boolean;
@@ -61,36 +63,38 @@ export function normalizePhoneNumber(raw: string): string {
 }
 
 /**
- * Hitung bobot vote berdasarkan role & reputasi user.
+ * Hitung bobot suara laporan:
+ * - Warga biasa: 1
+ * - Trusted Reporter (`is_trusted_reporter = TRUE`): 2
+ * - Pengurus RT resmi lokasi / Admin: 3 (langsung memenuhi ambang konfirmasi)
  */
 export function resolveVoteWeight(
   role: UserRole,
-  reputationVoteWeight = 1,
+  isTrustedReporter = false,
   isOfficialForLocation = false,
 ): number {
   if (role === UserRole.ADMIN || isOfficialForLocation) {
-    return Math.max(3, reputationVoteWeight);
+    return 3;
   }
-  if (role === UserRole.PENGURUS_RT) {
-    return Math.max(2, reputationVoteWeight);
+  if (isTrustedReporter) {
+    return 2;
   }
-  return Math.max(1, reputationVoteWeight);
+  return 1;
 }
 
 /**
- * Evaluasi apakah user berhak mendapat badge Trusted Reporter.
+ * Evaluasi status Trusted Reporter:
+ * Syarat minimal 10 laporan dan akurasi (matched / total) >= 90%.
  */
 export function evaluateTrustedReporter(
   totalReports: number,
   matchedReports: number,
 ): { isTrustedReporter: boolean; voteWeight: number } {
-  if (totalReports < TRUSTED_MIN_MATCHED_REPORTS) {
+  if (totalReports < TRUSTED_MIN_TOTAL_REPORTS) {
     return { isTrustedReporter: false, voteWeight: 1 };
   }
   const accuracy = matchedReports / totalReports;
-  const trusted =
-    matchedReports >= TRUSTED_MIN_MATCHED_REPORTS &&
-    accuracy >= TRUSTED_MIN_ACCURACY_RATIO;
+  const trusted = accuracy >= TRUSTED_MIN_ACCURACY_RATIO;
 
   return {
     isTrustedReporter: trusted,
@@ -99,13 +103,15 @@ export function evaluateTrustedReporter(
 }
 
 /**
- * Agregasi laporan aktif (belum expired & tidak di-hide) pada suatu lokasi
- * menjadi ringkasan status lokasi + daftar laporan yang terkonfirmasi (2-3 laporan / bobot >= 2).
+ * Agregasi laporan aktif (belum expired & is_hidden = FALSE) pada suatu lokasi
+ * menjadi ringkasan status lokasi + daftar laporan yang terkonfirmasi (total bobot >= 3).
  */
 export function computeLocationConsensus(
   activeReports: ActiveReportInput[],
 ): ComputedSummaryResult {
-  if (activeReports.length === 0) {
+  const visibleReports = activeReports.filter((r) => !r.isHidden);
+
+  if (visibleReports.length === 0) {
     return {
       currentStatus: SummaryStatus.UNKNOWN,
       blankoStatus: null,
@@ -113,6 +119,7 @@ export function computeLocationConsensus(
       officerStatus: null,
       networkStatus: null,
       confirmationCount: 0,
+      totalWeight: 0,
       expiresAt: null,
       winningCondition: null,
       isConfirmed: false,
@@ -121,7 +128,7 @@ export function computeLocationConsensus(
   }
 
   // Deduplikasi suara per user per conditionType (ambil laporan terbaru dari user yang sama)
-  const sortedDesc = [...activeReports].sort(
+  const sortedDesc = [...visibleReports].sort(
     (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
   );
 
@@ -191,6 +198,7 @@ export function computeLocationConsensus(
       officerStatus: null,
       networkStatus: null,
       confirmationCount: 0,
+      totalWeight: 0,
       expiresAt: null,
       winningCondition: null,
       isConfirmed: false,
@@ -201,7 +209,6 @@ export function computeLocationConsensus(
   const isConfirmed =
     winningBucket.totalWeight >= CONFIRMATION_WEIGHT_THRESHOLD;
 
-  // Sub-status agregat dari kondisi-kondisi spesifik yang juga memenuhi threshold (atau minimal dilaporkan)
   const hasBlankoHabis =
     (buckets.get(ReportCondition.BLANKO_HABIS)?.totalWeight ?? 0) >=
     CONFIRMATION_WEIGHT_THRESHOLD;
@@ -218,7 +225,6 @@ export function computeLocationConsensus(
   let networkStatus: NetworkState | null = null;
   let queueEstimate: QueueBucket | null = null;
 
-  // Ambil estimasi antrean terbaru dari laporan yang menyertakan queueRange
   const latestWithQueue = sortedDesc.find((r) => r.queueRange != null);
   if (latestWithQueue?.queueRange) {
     queueEstimate = latestWithQueue.queueRange;
@@ -277,6 +283,7 @@ export function computeLocationConsensus(
     officerStatus,
     networkStatus,
     confirmationCount: winningBucket.uniqueUsers.size,
+    totalWeight: winningBucket.totalWeight,
     expiresAt: isConfirmed ? new Date(winningBucket.maxExpiresAt) : null,
     winningCondition,
     isConfirmed,

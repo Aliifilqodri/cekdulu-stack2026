@@ -1,4 +1,8 @@
-const MENU = [
+"use client";
+
+export type NavTab = "Peta" | "Lapor" | "Riwayat" | "Profil";
+
+const MENU: Array<{ label: NavTab; d: string }> = [
   {
     label: "Peta",
     d: "M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21ZM12 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z",
@@ -11,13 +15,25 @@ const MENU = [
   },
 ];
 
-export default function BottomNav({ aktif = "Peta" }: { aktif?: string }) {
+type Props = {
+  aktif?: NavTab;
+  unreadCount?: number;
+  onSelect: (tab: NavTab) => void;
+};
+
+export default function BottomNav({
+  aktif = "Peta",
+  unreadCount = 0,
+  onSelect,
+}: Props) {
   return (
     <nav className="absolute inset-x-0 bottom-0 z-[1001] flex h-[78px] justify-around border-t border-line bg-white pt-2">
       {MENU.map((m) =>
         m.label === "Lapor" ? (
           <button
+            type="button"
             key={m.label}
+            onClick={() => onSelect(m.label)}
             className="flex w-16 flex-col items-center gap-0.5 text-[10.5px] font-semibold text-ink"
           >
             <span className="grid h-[30px] w-[42px] place-items-center rounded-[10px] bg-brand">
@@ -29,6 +45,7 @@ export default function BottomNav({ aktif = "Peta" }: { aktif?: string }) {
                 stroke="#fff"
                 strokeWidth="2.4"
                 strokeLinecap="round"
+                aria-hidden="true"
               >
                 <path d={m.d} />
               </svg>
@@ -37,8 +54,10 @@ export default function BottomNav({ aktif = "Peta" }: { aktif?: string }) {
           </button>
         ) : (
           <button
+            type="button"
             key={m.label}
-            className={`flex w-16 flex-col items-center gap-0.5 text-[10.5px] font-semibold ${
+            onClick={() => onSelect(m.label)}
+            className={`relative flex w-16 flex-col items-center gap-0.5 text-[10.5px] font-semibold ${
               aktif === m.label ? "text-brand" : "text-slate-400"
             }`}
           >
@@ -51,9 +70,15 @@ export default function BottomNav({ aktif = "Peta" }: { aktif?: string }) {
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
+              aria-hidden="true"
             >
               <path d={m.d} />
             </svg>
+            {m.label === "Riwayat" && unreadCount > 0 && (
+              <span className="absolute right-3 top-0 grid h-4 min-w-4 place-items-center rounded-full bg-closed px-1 text-[9px] font-bold text-white">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
             {m.label}
           </button>
         ),

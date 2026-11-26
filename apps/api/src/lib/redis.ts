@@ -3,11 +3,13 @@ import { REPORT_COOLDOWN_SECONDS, REPORT_TTL_SECONDS } from "@cekdulu/shared";
 import { env } from "../config/env";
 
 let redisClient: Redis | null = null;
+let subscriberClient: Redis | null = null;
 let isRedisReady = false;
 
 export const REDIS_KEYS = {
   expiryZSet: "cekdulu:reports:expiry_queue",
-  summaryCache: (locationId: string) => `cekdulu:summary:${locationId}`,
+  summaryCachePrefix: "location:status:",
+  summaryCache: (locationId: string) => `location:status:${locationId}`,
   reportCooldown: (userId: string, locationId: string) =>
     `cekdulu:cooldown:${userId}:${locationId}`,
   otpRateLimit: (phone: string) => `cekdulu:otp_rl:${phone}`,
@@ -54,10 +56,72 @@ export function getRedis(): Redis | null {
 }
 
 export async function closeRedis(): Promise<void> {
+  if (subscriberClient) {
+    await subscriberClient.quit().catch(() => subscriberClient?.disconnect());
+    subscriberClient = null;
+  }
   if (redisClient) {
     await redisClient.quit().catch(() => redisClient?.disconnect());
     redisClient = null;
     isRedisReady = false;
+  }
+}
+
+/**
+ * Mengaktifkan Redis Keyspace Notifications (`Ex` -> expired events) pada channel `__keyevent@0__:expired`
+ * untuk mereset status lokasi menjadi `unknown` tepat saat TTL 7200 detik `location:status:{location_id}` habis.
+ */
+export async function setupRedisKeyspaceExpiryListener(
+  onLocationStatusExpired: (locationId: string) => Promise<void>,
+): Promise<void> {
+  if (!redisClient || subscriberClient) return;
+
+  const attachListener = async () => {
+    if (!redisClient || subscriberClient) return;
+
+    try {
+      // Aktifkan keyevent expired notifications (Ex); abaikan error jika managed Redis mengunci CONFIG
+      await redisClient
+        .config("SET", "notify-keyspace-events", "Ex")
+        .catch(() => undefined);
+
+      const sub = redisClient.duplicate();
+      subscriberClient = sub;
+
+      sub.on("error", (err) => {
+        console.warn("[redis:keyspace] Koneksi subscriber terganggu:", err.message);
+      });
+
+      await sub.psubscribe("__keyevent@*__:expired");
+
+      sub.on("pmessage", (_pattern, _channel, expiredKey) => {
+        if (expiredKey.startsWith(REDIS_KEYS.summaryCachePrefix)) {
+          const locationId = expiredKey.slice(
+            REDIS_KEYS.summaryCachePrefix.length,
+          );
+          if (locationId) {
+            void onLocationStatusExpired(locationId);
+          }
+        }
+      });
+
+      console.log(
+        "[redis] Listener Keyspace Notifications (__keyevent@*__:expired) aktif",
+      );
+    } catch (err) {
+      console.warn(
+        "[redis] Gagal mengaktifkan listener keyspace expired:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  };
+
+  if (isRedisReady) {
+    await attachListener();
+  } else {
+    redisClient.once("ready", () => {
+      void attachListener();
+    });
   }
 }
 

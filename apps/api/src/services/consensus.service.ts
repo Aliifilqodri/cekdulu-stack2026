@@ -9,6 +9,7 @@ import {
   computeLocationConsensus,
   evaluateTrustedReporter,
   NotifType,
+  REPORT_TTL_SECONDS,
   SUMMARY_STATUS_LABELS,
   SummaryStatus,
   ValidationState,
@@ -181,10 +182,10 @@ export async function recalculateLocationSummary(
   await em.flush();
 
   const serialized = serializeStatusSummary(summary);
-  if (consensus.expiresAt) {
-    const ttlSeconds = Math.max(
-      1,
-      Math.floor((consensus.expiresAt.getTime() - Date.now()) / 1000),
+  if (consensus.isConfirmed && consensus.expiresAt) {
+    const ttlSeconds = Math.min(
+      REPORT_TTL_SECONDS,
+      Math.max(1, Math.floor((consensus.expiresAt.getTime() - Date.now()) / 1000)),
     );
     await setLocationSummaryCache(locationId, serialized, ttlSeconds);
   } else {

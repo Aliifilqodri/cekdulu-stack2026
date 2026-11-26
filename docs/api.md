@@ -1,6 +1,7 @@
 # kontrak api web ↔ bot
 
-Base URL default lokal: `http://localhost:4000/api/v1`
+Base URL default lokal: `http://localhost:4000/api/v1`  
+Swagger UI interaktif: `http://localhost:4000/api/docs` (OpenAPI JSON: `http://localhost:4000/api/docs.json`)
 
 Autentikasi:
 - **Web**: Header `Authorization: Bearer <jwt_token>` dari hasil `/auth/otp/verify`

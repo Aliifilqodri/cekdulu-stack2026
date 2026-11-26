@@ -14,4 +14,6 @@ Backend utama **cekdulu** yang melayani aplikasi Web (`apps/web`) dan WhatsApp B
    ```bash
    npm run dev:api
    ```
-   Server berjalan di `http://localhost:4000` (health check: `http://localhost:4000/api/v1/health`).
+   - Server API: `http://localhost:4000/api/v1/health`
+   - Swagger UI: `http://localhost:4000/api/docs`
+   - OpenAPI JSON: `http://localhost:4000/api/docs.json`

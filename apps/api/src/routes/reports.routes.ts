@@ -160,7 +160,7 @@ reportsRouter.post(
 
     const weightScore = resolveVoteWeight(
       user.role,
-      reputation.voteWeight,
+      reputation.isTrustedReporter,
       officialAssignment !== null,
     );
 
