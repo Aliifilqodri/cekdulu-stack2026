@@ -4,6 +4,13 @@ import dotenv from "dotenv";
 dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 dotenv.config();
 
+export function parseCorsOrigins(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((s) => s.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+}
+
 export const env = {
   NODE_ENV: process.env.NODE_ENV || "development",
   PORT: Number(process.env.API_PORT || process.env.PORT || 4000),

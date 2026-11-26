@@ -4,7 +4,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 import swaggerUi from "swagger-ui-express";
 import { getOrm, RequestContext } from "@cekdulu/db";
-import { env } from "./config/env";
+import { env, parseCorsOrigins } from "./config/env";
 import { openApiSpec } from "./docs/openapi";
 import { errorHandler, notFoundHandler } from "./middlewares/error";
 import { apiV1Router } from "./routes";
@@ -26,7 +26,7 @@ export function createApp(): Express {
   );
   app.use(
     cors({
-      origin: env.CORS_ORIGIN.split(",").map((s) => s.trim()),
+      origin: parseCorsOrigins(env.CORS_ORIGIN),
       credentials: true,
     }),
   );

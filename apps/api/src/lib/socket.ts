@@ -1,14 +1,14 @@
 import { Server as HttpServer } from "node:http";
 import { Server as SocketIOServer } from "socket.io";
 import jwt from "jsonwebtoken";
-import { env } from "../config/env";
+import { env, parseCorsOrigins } from "../config/env";
 
 let io: SocketIOServer | null = null;
 
 export function initSocket(httpServer: HttpServer): SocketIOServer {
   io = new SocketIOServer(httpServer, {
     cors: {
-      origin: env.CORS_ORIGIN.split(",").map((s) => s.trim()),
+      origin: parseCorsOrigins(env.CORS_ORIGIN),
       credentials: true,
     },
   });
