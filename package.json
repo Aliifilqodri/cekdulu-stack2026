@@ -9,7 +9,9 @@
   "scripts": {
     "build:packages": "npm run build -w @cekdulu/shared && npm run build -w @cekdulu/db",
     "build:api": "npm run build:packages && npm run build -w @cekdulu/api",
+    "build:bot": "npm run build -w @cekdulu/shared && npm run build -w @cekdulu/bot",
     "dev:api": "npm run build:packages && npm run dev -w @cekdulu/api",
+    "dev:bot": "npm run build -w @cekdulu/shared && npm run dev -w @cekdulu/bot",
     "dev:web": "npm run dev -w web",
     "db:sql": "npm run build -w @cekdulu/shared && npm run schema:sql -w @cekdulu/db",
     "db:sync": "npm run build -w @cekdulu/shared && npm run schema:sync -w @cekdulu/db",

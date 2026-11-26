@@ -15,6 +15,10 @@ export const questionsRouter = Router();
 
 const listQuestionsQuerySchema = z.object({
   locationId: z.string().uuid().optional(),
+  unansweredOnly: z
+    .enum(["true", "false"])
+    .transform((v) => v === "true")
+    .optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });
 
@@ -36,13 +40,16 @@ questionsRouter.get(
   validateQuery(listQuestionsQuerySchema),
   asyncHandler(async (req, res) => {
     const em = getOrm().em;
-    const { locationId, limit } = req.query as unknown as z.infer<
+    const { locationId, unansweredOnly, limit } = req.query as unknown as z.infer<
       typeof listQuestionsQuerySchema
     >;
 
     const where: FilterQuery<Question> = {};
     if (locationId) {
       where.location = locationId;
+    }
+    if (unansweredOnly) {
+      where.isAnswered = false;
     }
 
     const questions = await em.find(Question, where, {
