@@ -25,3 +25,17 @@ curl -X POST http://localhost:4001/webhook/simulate \
   -H "Content-Type: application/json" \
   -d '{"fromPhone":"081200000003","text":"Cek Kebon Jeruk"}'
 ```
+
+## Nyambung ke WhatsApp asli (buat demo)
+
+Pakai mode `baileys`: bot login ke nomor WA demo lewat scan QR, kayak WhatsApp Web.
+
+1. Siapin **nomor WA khusus demo** (jangan nomor pribadi, ada risiko diblokir WhatsApp kalau dipakai bot).
+2. Di `.env` isi `WA_GATEWAY_MODE=baileys`.
+3. Jalanin API dulu (`npm run dev:api`), terus bot (`npm run dev:bot`).
+4. QR muncul di terminal. Buka WhatsApp di HP nomor demo > **Perangkat tertaut** > **Tautkan perangkat**, scan QR-nya.
+5. Kalau muncul `Tersambung ke WhatsApp`, coba chat nomor demo itu dari HP lain: ketik `menu`.
+
+Sesi login disimpan di `apps/bot/sessions/` (udah masuk `.gitignore`, **jangan di-commit**). Kalau mau ganti nomor, hapus folder itu terus jalanin ulang.
+
+Catatan: Baileys itu library nggak resmi. Buat demo lomba aman, tapi buat produksi tetap pakai `cloud_api` (WhatsApp Cloud API resmi).

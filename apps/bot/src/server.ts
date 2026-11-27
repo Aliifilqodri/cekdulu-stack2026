@@ -18,6 +18,7 @@ async function bootstrap() {
 
   const apiClient = new HttpCekduluApiClient(env.API_BASE_URL, env.BOT_API_KEY);
   const engine = new BotConversationEngine(sessionStore, apiClient, gateway);
+  gateway.setIncomingHandler?.((msg) => engine.handleIncomingMessage(msg));
 
   const outboxSubscriber = new OutboxSubscriber(gateway, env.REDIS_URL);
   await outboxSubscriber.start();

@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 dotenv.config();
 
-export type GatewayMode = "simulation" | "cloud_api" | "multi_device";
+export type GatewayMode = "simulation" | "cloud_api" | "multi_device" | "baileys";
 
 export const env = {
   NODE_ENV: process.env.NODE_ENV || "development",

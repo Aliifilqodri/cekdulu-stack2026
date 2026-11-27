@@ -34,4 +34,5 @@ export interface WaGatewayAdapter {
   stop(): Promise<void>;
   getStatus(): WaGatewayStatus;
   sendMessage(toPhone: string, text: string): Promise<OutboundWaRecord>;
+  setIncomingHandler?(handler: (msg: IncomingWaMessage) => Promise<unknown>): void;
 }

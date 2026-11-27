@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { env, type GatewayMode } from "../config/env";
+import { BaileysGatewayAdapter } from "./baileys";
 import type {
   OutboundWaRecord,
   WaGatewayAdapter,
@@ -229,6 +230,8 @@ export function createGatewayAdapter(
       return new CloudApiGatewayAdapter(sessionId);
     case "multi_device":
       return new MultiDeviceGatewayAdapter(sessionId);
+    case "baileys":
+      return new BaileysGatewayAdapter(sessionId);
     default:
       return new SimulationGatewayAdapter(sessionId);
   }
