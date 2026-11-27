@@ -22,6 +22,7 @@ import {
 import {
   BotConversationEngine,
   parseTimeSlotRange,
+  normalizeCommand,
 } from "../src/services/conversation.engine";
 
 function createMockApiClient() {
@@ -343,4 +344,43 @@ describe("WhatsApp Bot Gateway & State Machine", () => {
     assert.equal(mock.answeredQuestions.length, 1);
     assert.equal(mock.answeredQuestions[0].questionId, "q-1");
   });
+
+  it("Salah ketik, sapaan, dan makasih tetap dipahami", async () => {
+    const store = new InMemorySessionStore();
+    const mock = createMockApiClient();
+    const engine = new BotConversationEngine(store, mock.client);
+
+    for (const t of ["memu", "Menuu", "halo", "P", "assalamualaikum"]) {
+      const r = await engine.handleIncomingMessage({ fromPhone: "081200000003", text: t });
+      assert.match(r.replies[0], /Mau ngapain\?/, `gagal untuk "${t}"`);
+    }
+    const thanks = await engine.handleIncomingMessage({ fromPhone: "081200000003", text: "makasih ya" });
+    assert.match(thanks.replies[0], /Sama-sama/);
+    assert.equal(normalizeCommand("LAPR"), "LAPOR");
+    assert.equal(normalizeCommand("CEK KEBON JERUK"), "CEK KEBON JERUK");
+  });
+
+  it("Nama lokasi salah ketik dikasih saran yang bisa dipilih", async () => {
+    const store = new InMemorySessionStore();
+    const mock = createMockApiClient();
+    const engine = new BotConversationEngine(store, mock.client);
+
+    const r = await engine.handleIncomingMessage({ fromPhone: "081200000003", text: "cek sukamju" });
+    assert.match(r.replies[0], /Mungkin maksudnya/);
+    assert.match(r.replies[0], /1\. \*Kelurahan Sukamaju/);
+    assert.equal(r.session?.step, "CEK_PICK_LOCATION");
+    const pick = await engine.handleIncomingMessage({ fromPhone: "081200000003", text: "1" });
+    assert.match(pick.replies[0], /Kelurahan Sukamaju/);
+  });
+
+  it("Teks miring hasil copy (_Cek ..._) tetap kebaca", async () => {
+    const store = new InMemorySessionStore();
+    const mock = createMockApiClient();
+    const engine = new BotConversationEngine(store, mock.client);
+    await engine.handleIncomingMessage({ fromPhone: "081200000003", text: "Cek" });
+    const r = await engine.handleIncomingMessage({ fromPhone: "081200000003", text: "_Cek Kelurahan Sukamaju_" });
+    assert.match(r.replies[0], /Kelurahan Sukamaju/);
+    assert.match(r.replies[0], /Antre/);
+  });
 });
+

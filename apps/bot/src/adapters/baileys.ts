@@ -49,12 +49,19 @@ export class BaileysGatewayAdapter implements WaGatewayAdapter {
   private async connect(): Promise<void> {
     const baileys = await esmImport("@whiskeysockets/baileys");
     const makeWASocket = baileys.makeWASocket ?? baileys.default;
-    const { useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } = baileys;
+    const {
+      useMultiFileAuthState,
+      DisconnectReason,
+      Browsers,
+      fetchLatestBaileysVersion,
+    } = baileys;
     const pino = (await esmImport("pino")).default;
     const qrcode = (await esmImport("qrcode-terminal")).default;
 
     const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
-    const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: undefined }));
+    const { version } = await fetchLatestBaileysVersion().catch(() => ({
+      version: undefined,
+    }));
 
     const sock = makeWASocket({
       auth: state,
@@ -72,13 +79,17 @@ export class BaileysGatewayAdapter implements WaGatewayAdapter {
       const { connection, lastDisconnect, qr } = update;
       if (qr) {
         console.log("\n[bot:wa] Scan QR ini pakai WhatsApp nomor demo:");
-        console.log("[bot:wa] WhatsApp > Perangkat tertaut > Tautkan perangkat\n");
+        console.log(
+          "[bot:wa] WhatsApp > Perangkat tertaut > Tautkan perangkat\n",
+        );
         qrcode.generate(qr, { small: true });
       }
       if (connection === "open") {
         this.connected = true;
         this.retries = 0;
-        const me = sock.user?.id ? String(sock.user.id).split(":")[0].split("@")[0] : null;
+        const me = sock.user?.id
+          ? String(sock.user.id).split(":")[0].split("@")[0]
+          : null;
         this.pairedPhone = me;
         console.log(`[bot:wa] Tersambung ke WhatsApp sebagai ${me ?? "-"}`);
       }
@@ -94,13 +105,20 @@ export class BaileysGatewayAdapter implements WaGatewayAdapter {
         if (!this.stopping) {
           this.retries += 1;
           const wait = Math.min(30000, 2000 * this.retries);
-          console.warn(`[bot:wa] Koneksi putus (kode ${code ?? "-"}), nyambung ulang dalam ${wait / 1000} detik...`);
+          console.warn(
+            `[bot:wa] Koneksi putus (kode ${code ?? "-"}), nyambung ulang dalam ${wait / 1000} detik...`,
+          );
           setTimeout(() => void this.connect(), wait);
         }
       }
     });
 
     sock.ev.on("messages.upsert", async ({ messages, type }: any) => {
+      for (const m of messages) {
+        console.log(
+          `[bot:wa] pesan masuk (${type}) dari ${m.key?.remoteJid} alt=${m.key?.remoteJidAlt ?? "-"} fromMe=${m.key?.fromMe} isi=${Object.keys(m.message || {}).join(",") || "kosong"}`,
+        );
+      }
       if (type !== "notify") return;
       for (const m of messages) {
         try {
@@ -116,7 +134,13 @@ export class BaileysGatewayAdapter implements WaGatewayAdapter {
     const key = m?.key;
     if (!key || key.fromMe || !m.message) return;
     const jid: string = key.remoteJid ?? "";
-    if (!jid || jid.endsWith("@g.us") || jid === "status@broadcast" || jid.endsWith("@newsletter")) return;
+    if (
+      !jid ||
+      jid.endsWith("@g.us") ||
+      jid === "status@broadcast" ||
+      jid.endsWith("@newsletter")
+    )
+      return;
 
     const pnJid: string =
       [key.remoteJidAlt, key.senderPn, jid].find(
@@ -149,7 +173,12 @@ export class BaileysGatewayAdapter implements WaGatewayAdapter {
     }
 
     await this.sock?.readMessages?.([key]).catch(() => undefined);
-    await this.handler({ fromPhone: phone, text, location, sessionId: this.sessionId });
+    await this.handler({
+      fromPhone: phone,
+      text,
+      location,
+      sessionId: this.sessionId,
+    });
   }
 
   async stop(): Promise<void> {
@@ -179,10 +208,14 @@ export class BaileysGatewayAdapter implements WaGatewayAdapter {
     const jid = this.jidByPhone.get(digits) ?? `${digits}@s.whatsapp.net`;
     if (this.sock && this.connected) {
       try {
-        await this.sock.sendPresenceUpdate?.("composing", jid).catch(() => undefined);
+        await this.sock
+          .sendPresenceUpdate?.("composing", jid)
+          .catch(() => undefined);
         await sleep(Math.min(1500, 400 + text.length * 8));
         await this.sock.sendMessage(jid, { text });
-        await this.sock.sendPresenceUpdate?.("paused", jid).catch(() => undefined);
+        await this.sock
+          .sendPresenceUpdate?.("paused", jid)
+          .catch(() => undefined);
       } catch (err) {
         console.warn(`[bot:wa] Gagal kirim ke ${digits}:`, err);
       }

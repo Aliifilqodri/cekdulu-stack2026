@@ -40,6 +40,58 @@ const QUEUE_MENU: Array<{ key: string; value: QueueBucket }> = [
   { key: "4", value: QueueBucket.GT_30 },
 ];
 
+const GREETINGS = new Set([
+  "MENU", "HALO", "HALLO", "HALOO", "HAI", "HAY", "HI", "HELLO", "HELO", "START",
+  "MULAI", "P", "PING", "TES", "TEST", "ASSALAMUALAIKUM", "ASSALAMUALAIKUM WR WB",
+  "PAGI", "SIANG", "SORE", "MALAM", "SELAMAT PAGI", "SELAMAT SIANG", "SELAMAT SORE",
+  "SELAMAT MALAM", "BATAL", "KEMBALI", "BALIK", "0",
+]);
+
+const THANKS = /^(MAKASIH|MAKASI|MAKASSIH|TERIMA ?KASIH|TERIMAKASIH|THANKS|THANK YOU|THX|TQ|TENGKYU|MKSH|OKE MAKASIH|OK MAKASIH)\b/;
+
+function editDistance(a: string, b: string): number {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+export function normalizeCommand(upper: string): string {
+  const t = upper.replace(/[^A-Z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+  if (GREETINGS.has(t)) return "MENU";
+  for (const cmd of ["MENU", "LAPOR", "BATAL"]) {
+    if (t.length >= 3 && editDistance(t, cmd) <= 1) return cmd === "BATAL" ? "MENU" : cmd;
+  }
+  if (["CEKK", "CK", "CHEK", "CHECK", "CEKKK"].includes(t)) return "CEK";
+  return upper;
+}
+
+function similarity(query: string, name: string): number {
+  const q = query.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((w) => w.length >= 3);
+  const words = name.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
+  let score = 0;
+  for (const w of q) {
+    let best = 0;
+    for (const n of words) {
+      if (n.startsWith(w) || w.startsWith(n)) best = Math.max(best, 1);
+      else {
+        const d = editDistance(w, n);
+        if (d <= Math.max(1, Math.floor(w.length / 4))) best = Math.max(best, 0.7);
+      }
+    }
+    score += best;
+  }
+  return score;
+}
+
 function formatRelativeTime(isoDate?: string | null): string {
   if (!isoDate) return "baru saja";
   const mins = Math.max(
@@ -154,7 +206,7 @@ function formatCandidateList(
       loc.distanceKm !== null && loc.distanceKm !== undefined
         ? ` (${loc.distanceKm} km)`
         : "";
-    lines.push(`${idx + 1}. *${loc.name}* — ${loc.categoryLabel}${dist}`);
+    lines.push(`${idx + 1}. *${loc.name}* · ${loc.categoryLabel}${dist}`);
   });
   lines.push("");
   lines.push("Balas dengan *angka pilihan* (contoh: *1*), atau ketik *BATAL*.");
@@ -185,7 +237,10 @@ export class BotConversationEngine {
     session: BotSessionState | null;
   }> {
     const phoneNumber = normalizePhoneNumber(msg.fromPhone);
-    const text = (msg.text || "").trim();
+    const text = (msg.text || "")
+      .replace(/[_*~`]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
     const upper = text.toUpperCase();
     const replies: string[] = [];
 
@@ -205,29 +260,33 @@ export class BotConversationEngine {
 
       const buildMainMenu = () => {
         const lines = [
-          `Halo${user.fullName ? ` *${user.fullName}*` : ""}! Selamat datang di *CekDulu Bot* 📍`,
+          `Halo${user.fullName ? ` *${user.fullName}*` : ""}! 👋`,
+          "Aku *CekDulu Bot*. Aku bantu kamu tahu kondisi layanan RT & kelurahan *sebelum berangkat*, biar nggak bolak-balik.",
           "",
-          "Pilih layanan yang dibutuhkan:",
-          "1️⃣ *CEK* — Cek status layanan / kirim lokasi",
-          "2️⃣ *LAPOR* — Lapor kondisi layanan terkini",
+          "*Mau ngapain?*",
+          "1️⃣ *Cek status* tempat layanan",
+          "2️⃣ *Lapor* kondisi yang kamu lihat sekarang",
         ];
         if (isOfficial) {
-          lines.push("3️⃣ *JADWAL RT* — Panel Pengurus RT (Atur slot & jawab warga)");
+          lines.push("3️⃣ *Panel pengurus RT* (atur jam TTD & jawab warga)");
         }
         lines.push("");
-        lines.push("Atau langsung ketik contoh: _Cek Kelurahan Kebon Jeruk_");
+        lines.push("Balas *angkanya* aja, atau langsung ketik:");
+        lines.push("• _cek kebon jeruk_");
+        lines.push("• 📎 kirim *lokasi* buat lihat yang terdekat");
+        lines.push("");
+        lines.push("_Ketik *menu* kapan aja buat balik ke sini._");
         return lines.join("\n");
       };
 
       // Perintah global untuk reset atau keluar dari sesi
-      if (
-        upper === "MENU" ||
-        upper === "HALO" ||
-        upper === "HI" ||
-        upper === "START" ||
-        upper === "BATAL" ||
-        upper === "0"
-      ) {
+      if (THANKS.test(upper.replace(/[^A-Z ]/g, "").trim())) {
+        await reply("Sama-sama! 🙌 Semoga urusannya lancar. Ketik *menu* kalau butuh lagi.");
+        return { phoneNumber, replies, session: await this.sessionStore.get(phoneNumber) };
+      }
+
+      const command = normalizeCommand(upper);
+      if (command === "MENU") {
         await this.sessionStore.clear(phoneNumber);
         await reply(buildMainMenu());
         return { phoneNumber, replies, session: null };
@@ -239,8 +298,8 @@ export class BotConversationEngine {
         return { phoneNumber, replies, session: nextSession };
       }
 
-      if (upper === "CEK" || upper.startsWith("CEK ")) {
-        const keyword = text.slice(3).trim();
+      if (command === "CEK" || upper === "CEK" || upper.startsWith("CEK ")) {
+        const keyword = command === "CEK" ? "" : text.slice(3).trim();
         if (!keyword && !msg.location) {
           const s: BotSessionState = {
             step: "CEK_PICK_LOCATION",
@@ -260,8 +319,8 @@ export class BotConversationEngine {
         return { phoneNumber, replies, session: nextSession };
       }
 
-      if (upper === "LAPOR" || upper.startsWith("LAPOR ")) {
-        const keyword = text.slice(5).trim();
+      if (command === "LAPOR" || upper === "LAPOR" || upper.startsWith("LAPOR ")) {
+        const keyword = command === "LAPOR" && upper !== "LAPOR" && !upper.startsWith("LAPOR ") ? "" : text.slice(5).trim();
         const nextSession = await this.startReportFlow(
           phoneNumber,
           keyword,
@@ -357,10 +416,39 @@ export class BotConversationEngine {
   ): Promise<BotSessionState | null> {
     const matches = await this.apiClient.searchLocations(phoneNumber, params);
     if (matches.length === 0) {
+      if (params.q) {
+        const all = await this.apiClient.searchLocations(phoneNumber, {}).catch(() => []);
+        const suggestions = all
+          .map((item) => ({ item, score: similarity(params.q!, item.name) }))
+          .filter((x) => x.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .map((x) => x.item);
+        if (suggestions.length > 0) {
+          const candidates = toCandidates(suggestions).slice(0, 3);
+          const nextSession: BotSessionState = {
+            step: "CEK_PICK_LOCATION",
+            locationCandidates: candidates,
+            updatedAt: Date.now(),
+          };
+          await this.sessionStore.set(phoneNumber, nextSession, BOT_SESSION_TTL_SECONDS);
+          await reply(
+            formatCandidateList(
+              `Hmm, aku belum nemu tempat bernama "${params.q}" 🤔\nMungkin maksudnya:`,
+              candidates,
+            ),
+          );
+          return nextSession;
+        }
+        await reply(
+          fallbackHint
+            ? `Hmm, aku belum ngerti "${params.q}" 🤔\n\n${fallbackHint}`
+            : `Aku belum nemu tempat bernama "${params.q}". Coba ketik nama kelurahan atau RT lain, atau kirim lokasi 📎.`,
+        );
+        return null;
+      }
       await reply(
-        fallbackHint
-          ? `Lokasi "${params.q}" tidak ditemukan.\n\n${fallbackHint}`
-          : "Lokasi tidak ditemukan di sekitar pencarianmu. Coba ketik nama kelurahan/RT lain atau kirim lokasi GPS.",
+        fallbackHint ??
+          "Belum ada tempat layanan yang terdaftar di sekitar lokasimu. Coba ketik nama kelurahan atau RT-nya ya.",
       );
       return null;
     }
@@ -523,7 +611,7 @@ export class BotConversationEngine {
     const candidates: SessionLocationCandidate[] = user.rtOfficialAssignments.map(
       (a) => ({
         id: a.locationId,
-        name: `${a.rtRwCode} — ${a.locationName}`,
+        name: `${a.rtRwCode} · ${a.locationName}`,
         categoryLabel: "Kantor RT",
       }),
     );
@@ -594,7 +682,7 @@ export class BotConversationEngine {
           phoneNumber,
           msg.location
             ? { lat: msg.location.latitude, lng: msg.location.longitude, radius: 5 }
-            : { q: text },
+            : { q: text.replace(/^cek\s+/i, "") },
           reply,
         );
       }
@@ -814,7 +902,7 @@ export class BotConversationEngine {
             `💬 *Pertanyaan Warga (${list.length} belum terjawab):*`,
             "",
             ...list.map(
-              (q, i) => `${i + 1}. _"${q.questionText}"_ — ${q.askedBy}`,
+              (q, i) => `${i + 1}. _"${q.questionText}"_ · ${q.askedBy}`,
             ),
             "",
             "Balas angka pertanyaan yang ingin dijawab:",
